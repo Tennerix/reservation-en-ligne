@@ -34,3 +34,5 @@ Comme pour BeachStats : crée un dépôt GitHub, envoie-y les fichiers, puis act
 - Jours de congé ponctuels (en attendant, supprime la plage concernée ou annule les réservations).
 - Paiement en ligne.
 - Validation des nouveaux enseignants : pour l'instant, n'importe qui peut créer un compte enseignant.
+
+  
