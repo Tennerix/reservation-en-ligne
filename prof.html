@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Espace enseignant : cours particuliers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="brand" href="index.html">Cours <b>particuliers</b></a>
+  <div class="user-bar" id="userBar"><a class="lien" href="index.html">Page des élèves</a></div>
+</div></header>
+
+<main class="wrap">
+  <div id="banner"></div>
+
+  <!-- Connexion -->
+  <section id="vueLogin" hidden>
+    <h1>Espace enseignant</h1>
+    <p class="lead">Connecte-toi pour renseigner tes matières et tes disponibilités, et voir les réservations.</p>
+    <div class="card" style="max-width:420px">
+      <form id="fLogin" novalidate>
+        <div class="field"><label class="f" for="lMail">Email</label><input type="email" id="lMail" autocomplete="email" required></div>
+        <div class="field"><label class="f" for="lPass">Mot de passe (6 caractères minimum)</label><input type="password" id="lPass" autocomplete="current-password" required></div>
+        <div id="lErr"></div>
+        <div class="actions" style="justify-content:flex-start">
+          <button type="submit" class="btn" id="bLogin">Se connecter</button>
+          <button type="button" class="btn ghost" id="bSignup">Créer un compte</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Création du profil (première connexion) -->
+  <section id="vueProfil" hidden>
+    <h1>Bienvenue !</h1>
+    <p class="lead">Dernière étape : dis aux élèves comment tu t'appelles.</p>
+    <div class="card" style="max-width:480px">
+      <form id="fNouveau">
+        <div class="field"><label class="f" for="nNom">Nom affiché aux élèves</label><input type="text" id="nNom" placeholder="Louis B." required></div>
+        <div class="actions" style="justify-content:flex-start"><button type="submit" class="btn gold">Continuer</button></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Tableau de bord -->
+  <section id="vueDash" hidden>
+    <h1 id="dashTitre">Mon espace</h1>
+    <div class="tabs" id="tabs">
+      <button type="button" data-t="res" class="on">Réservations</button>
+      <button type="button" data-t="dispo">Disponibilités</button>
+      <button type="button" data-t="mat">Matières</button>
+      <button type="button" data-t="prof">Mon profil</button>
+    </div>
+
+    <div id="t-res"></div>
+
+    <div id="t-dispo" hidden>
+      <div class="card">
+        <h2>Ajouter une plage horaire</h2>
+        <p class="lead" style="margin-top:4px">Indique quand tu es disponible chaque semaine. Le site découpe la plage en créneaux de <b id="dureeInfo">60</b> min.</p>
+        <form id="fDispo">
+          <div class="row">
+            <div><label class="f" for="dJour">Jour</label><select id="dJour"></select></div>
+            <div><label class="f" for="dDebut">De</label><input type="time" id="dDebut" value="17:00" required></div>
+            <div><label class="f" for="dFin">À</label><input type="time" id="dFin" value="20:00" required></div>
+            <div><label class="f" for="dMode">Format</label>
+              <select id="dMode"><option value="les_deux">Visio ou présentiel</option><option value="visio">Visio uniquement</option><option value="presentiel">Présentiel uniquement</option></select>
+            </div>
+          </div>
+          <div class="field" style="margin-top:12px"><label class="f" for="dLieu">Lieu en présentiel (facultatif)</label><input type="text" id="dLieu" placeholder="Ex. : chez l'élève, club de tennis de La Flèche…"></div>
+          <div id="dErr"></div>
+          <button type="submit" class="btn gold">Ajouter</button>
+        </form>
+      </div>
+      <div class="card"><h2>Mes plages</h2><div id="listeDispos" class="liste"></div></div>
+    </div>
+
+    <div id="t-mat" hidden>
+      <div class="card">
+        <h2>Matières que j'enseigne</h2>
+        <p class="lead" style="margin-top:4px">Coche tes matières et indique, si tu veux, ton tarif par séance (€).</p>
+        <div id="listeMat"></div>
+        <div class="actions" style="justify-content:flex-start"><button type="button" class="btn gold" id="bSaveMat">Enregistrer</button></div>
+      </div>
+      <div class="card">
+        <h2>Une matière manque ?</h2>
+        <form id="fAddMat" class="row">
+          <div><label class="f" for="amNom">Nom</label><input type="text" id="amNom" placeholder="Ex. : Badminton" required></div>
+          <div><label class="f" for="amCat">Catégorie</label><select id="amCat"><option>Scolaire</option><option>Sport</option><option>Autre</option></select></div>
+          <div style="flex:0 0 auto"><button type="submit" class="btn">Ajouter</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div id="t-prof" hidden>
+      <div class="card" style="max-width:520px">
+        <form id="fProfil">
+          <div class="field"><label class="f" for="pNom">Nom affiché</label><input type="text" id="pNom" required></div>
+          <div class="field"><label class="f" for="pBio">Présentation (facultatif)</label><textarea id="pBio"></textarea></div>
+          <div class="field"><label class="f" for="pDuree">Durée d'une séance (minutes)</label><input type="number" id="pDuree" min="15" max="240" step="5"></div>
+          <button type="submit" class="btn gold">Enregistrer</button>
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+let user = null;
+const D = { profil: null, matieres: [], pm: [], dispos: [], res: [] };
+
+function vue(nom) {
+  ['Login', 'Profil', 'Dash'].forEach(v => $('#vue' + v).hidden = (v !== nom));
+}
+
+/* ---------- Connexion ---------- */
+async function route(session) {
+  user = session ? session.user : null;
+  const bar = $('#userBar');
+  if (!user) {
+    bar.innerHTML = '<a class="lien" href="index.html">Page des élèves</a>';
+    vue('Login'); return;
+  }
+  bar.innerHTML = '<span>' + esc(user.email) + '</span><button type="button" class="btn ghost petit" id="bOut" style="color:#fff;border-color:rgba(255,255,255,.35)">Déconnexion</button>';
+  $('#bOut').onclick = () => sb.auth.signOut();
+  const r = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (r.error) { toast(r.error.message, 'err'); return; }
+  if (!r.data) { vue('Profil'); return; }
+  D.profil = r.data;
+  await chargerTout();
+  vue('Dash');
+}
+
+$('#fLogin').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('#lErr').innerHTML = ''; $('#bLogin').disabled = true;
+  const r = await sb.auth.signInWithPassword({ email: $('#lMail').value.trim(), password: $('#lPass').value });
+  $('#bLogin').disabled = false;
+  if (r.error) $('#lErr').innerHTML = '<div class="alert err">' + esc(r.error.message === 'Invalid login credentials' ? 'Email ou mot de passe incorrect.' : r.error.message) + '</div>';
+});
+$('#bSignup').addEventListener('click', async () => {
+  $('#lErr').innerHTML = '';
+  const email = $('#lMail').value.trim(), password = $('#lPass').value;
+  if (!email || password.length < 6) { $('#lErr').innerHTML = '<div class="alert err">Renseigne un email et un mot de passe de 6 caractères minimum.</div>'; return; }
+  const r = await sb.auth.signUp({ email, password });
+  if (r.error) { $('#lErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
+  if (!r.data.session) $('#lErr').innerHTML = '<div class="alert ok">Compte créé. Clique sur le lien reçu par email pour le confirmer, puis reviens te connecter.</div>';
+});
+
+$('#fNouveau').addEventListener('submit', async e => {
+  e.preventDefault();
+  const nom = $('#nNom').value.trim();
+  if (nom.length < 2) return;
+  const r = await sb.from('profiles').insert({ id: user.id, nom });
+  if (r.error) { toast(r.error.message, 'err'); return; }
+  route({ user });
+});
+
+/* ---------- Chargement ---------- */
+async function chargerTout() {
+  const uid = user.id;
+  const [m, pm, d, res] = await Promise.all([
+    sb.from('matieres').select('*').order('nom'),
+    sb.from('prof_matieres').select('*').eq('prof_id', uid),
+    sb.from('disponibilites').select('*').eq('prof_id', uid).order('debut'),
+    sb.from('reservations').select('*, matieres(nom)').eq('prof_id', uid).eq('statut', 'confirme')
+      .gte('fin', new Date().toISOString()).order('debut')
+  ]);
+  const err = m.error || pm.error || d.error || res.error;
+  if (err) toast(err.message, 'err');
+  D.matieres = m.data || []; D.pm = pm.data || []; D.dispos = d.data || []; D.res = res.data || [];
+  renderTout();
+}
+
+function renderTout() {
+  $('#dashTitre').textContent = 'Bonjour ' + D.profil.nom;
+  $('#dureeInfo').textContent = D.profil.duree_creneau;
+  $('#pNom').value = D.profil.nom; $('#pBio').value = D.profil.bio || ''; $('#pDuree').value = D.profil.duree_creneau;
+  renderRes(); renderDispos(); renderMat();
+}
+
+/* ---------- Onglets ---------- */
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  $$('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['res', 'dispo', 'mat', 'prof'].forEach(t => $('#t-' + t).hidden = (t !== b.dataset.t));
+});
+
+/* ---------- Réservations ---------- */
+function renderRes() {
+  const box = $('#t-res');
+  if (!D.res.length) {
+    box.innerHTML = '<div class="card"><p class="vide">Aucune réservation à venir pour le moment.</p></div>';
+    return;
+  }
+  box.innerHTML = '<div class="liste">' + D.res.map(r => {
+    const a = new Date(r.debut);
+    return '<div class="item"><div><b>' + esc(jourLabel(a)) + ' à ' + heure(a) + '</b> · ' + esc(r.matieres ? r.matieres.nom : '') +
+      '<div class="meta">' + MODE_LABEL[r.mode] + '</div>' +
+      '<div style="margin-top:6px">' + esc(r.eleve_nom) + ' · <a href="mailto:' + esc(r.eleve_email) + '">' + esc(r.eleve_email) + '</a>' +
+      (r.eleve_tel ? ' · <a href="tel:' + esc(r.eleve_tel) + '">' + esc(r.eleve_tel) + '</a>' : '') + '</div>' +
+      (r.message ? '<div class="meta" style="margin-top:4px">« ' + esc(r.message) + ' »</div>' : '') +
+      '</div><button type="button" class="btn danger petit" data-annuler="' + r.id + '">Annuler</button></div>';
+  }).join('') + '</div>';
+}
+$('#t-res').addEventListener('click', async e => {
+  const b = e.target.closest('[data-annuler]'); if (!b) return;
+  if (!confirm('Annuler cette réservation ? Le créneau redeviendra disponible. Pense à prévenir l\'élève.')) return;
+  const r = await sb.from('reservations').update({ statut: 'annule' }).eq('id', b.dataset.annuler);
+  if (r.error) { toast(r.error.message, 'err'); return; }
+  toast('Réservation annulée'); chargerTout();
+});
+
+/* ---------- Disponibilités ---------- */
+$('#dJour').innerHTML = ORDRE_JOURS.map(j => '<option value="' + j + '">' + JOURS[j] + '</option>').join('');
+
+function renderDispos() {
+  const box = $('#listeDispos');
+  if (!D.dispos.length) { box.innerHTML = '<p class="vide">Aucune plage pour l\'instant. Ajoute-en une ci-dessus.</p>'; return; }
+  const tri = [...D.dispos].sort((a, b) => ORDRE_JOURS.indexOf(a.jour) - ORDRE_JOURS.indexOf(b.jour) || a.debut.localeCompare(b.debut));
+  box.innerHTML = tri.map(d =>
+    '<div class="item"><div><b>' + JOURS[d.jour] + ' · ' + hhmm(d.debut) + ' à ' + hhmm(d.fin) + '</b>' +
+    '<div class="meta">' + MODE_LABEL[d.mode] + (d.lieu ? ' · ' + esc(d.lieu) : '') + '</div></div>' +
+    '<button type="button" class="btn danger petit" data-suppr="' + d.id + '">Supprimer</button></div>').join('');
+}
+$('#fDispo').addEventListener('submit', async e => {
+  e.preventDefault();
+  const debut = $('#dDebut').value, fin = $('#dFin').value;
+  $('#dErr').innerHTML = '';
+  if (!debut || !fin || fin <= debut) { $('#dErr').innerHTML = '<div class="alert err">L\'heure de fin doit être après l\'heure de début.</div>'; return; }
+  const chevauche = D.dispos.some(d => d.jour === +$('#dJour').value && debut < d.fin.slice(0, 5) && fin > d.debut.slice(0, 5));
+  if (chevauche) { $('#dErr').innerHTML = '<div class="alert err">Cette plage chevauche une plage existante le même jour.</div>'; return; }
+  const r = await sb.from('disponibilites').insert({
+    prof_id: user.id, jour: +$('#dJour').value, debut, fin, mode: $('#dMode').value, lieu: $('#dLieu').value.trim() || null
+  });
+  if (r.error) { $('#dErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
+  toast('Plage ajoutée'); chargerTout();
+});
+$('#listeDispos').addEventListener('click', async e => {
+  const b = e.target.closest('[data-suppr]'); if (!b) return;
+  const r = await sb.from('disponibilites').delete().eq('id', b.dataset.suppr);
+  if (r.error) { toast(r.error.message, 'err'); return; }
+  toast('Plage supprimée'); chargerTout();
+});
+
+/* ---------- Matières ---------- */
+function renderMat() {
+  const mine = new Map(D.pm.map(x => [x.matiere_id, x]));
+  $('#listeMat').innerHTML = ['Scolaire', 'Sport', 'Autre'].map(c => {
+    const l = D.matieres.filter(x => x.categorie === c);
+    if (!l.length) return '';
+    return '<div class="groupe"><div class="titre">' + c + '</div>' + l.map(m => {
+      const p = mine.get(m.id);
+      return '<div class="mat-ligne"><label><input type="checkbox" data-mat="' + m.id + '"' + (p ? ' checked' : '') + '> ' + esc(m.nom) + '</label>' +
+        '<input type="number" min="0" step="0.5" placeholder="€" data-tarif="' + m.id + '" value="' + (p && p.tarif != null ? p.tarif : '') + '" aria-label="Tarif ' + esc(m.nom) + '"></div>';
+    }).join('') + '</div>';
+  }).join('');
+}
+$('#bSaveMat').addEventListener('click', async () => {
+  const cochees = [], decochees = [];
+  $$('#listeMat [data-mat]').forEach(cb => {
+    const id = +cb.dataset.mat;
+    if (cb.checked) {
+      const t = $('[data-tarif="' + id + '"]').value;
+      cochees.push({ prof_id: user.id, matiere_id: id, tarif: t === '' ? null : +t });
+    } else decochees.push(id);
+  });
+  if (cochees.length) {
+    const r = await sb.from('prof_matieres').upsert(cochees);
+    if (r.error) { toast(r.error.message, 'err'); return; }
+  }
+  if (decochees.length) {
+    const r = await sb.from('prof_matieres').delete().eq('prof_id', user.id).in('matiere_id', decochees);
+    if (r.error) { toast(r.error.message, 'err'); return; }
+  }
+  toast('Matières enregistrées'); chargerTout();
+});
+$('#fAddMat').addEventListener('submit', async e => {
+  e.preventDefault();
+  const nom = $('#amNom').value.trim();
+  if (nom.length < 2) return;
+  const r = await sb.from('matieres').insert({ nom, categorie: $('#amCat').value });
+  if (r.error) { toast(r.error.code === '23505' ? 'Cette matière existe déjà dans la liste.' : r.error.message, 'err'); return; }
+  $('#amNom').value = ''; toast('Matière ajoutée : coche-la dans la liste'); chargerTout();
+});
+
+/* ---------- Profil ---------- */
+$('#fProfil').addEventListener('submit', async e => {
+  e.preventDefault();
+  const duree = +$('#pDuree').value;
+  if (!(duree >= 15 && duree <= 240)) { toast('La durée doit être entre 15 et 240 minutes.', 'err'); return; }
+  const r = await sb.from('profiles').update({ nom: $('#pNom').value.trim(), bio: $('#pBio').value.trim() || null, duree_creneau: duree }).eq('id', user.id);
+  if (r.error) { toast(r.error.message, 'err'); return; }
+  const p = await sb.from('profiles').select('*').eq('id', user.id).single();
+  D.profil = p.data; renderTout(); toast('Profil enregistré');
+});
+
+/* ---------- Démarrage ---------- */
+if (!sb) { bannerConfig($('#banner')); }
+else {
+  sb.auth.onAuthStateChange((_evt, session) => { setTimeout(() => route(session), 0); });
+}
+</script>
+</body>
+</html>

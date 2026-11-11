@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cours particuliers : réserver un créneau</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="brand" href="index.html">Cours <b>particuliers</b></a>
+  <a class="lien" href="prof.html">Espace enseignant</a>
+</div></header>
+
+<main class="wrap">
+  <h1>Réserve ton cours en quelques clics</h1>
+  <p class="lead">Choisis la matière, dis si tu préfères la visio ou le présentiel, puis prends le créneau qui t'arrange.</p>
+
+  <div id="banner"></div>
+
+  <section class="card">
+    <h2><span class="num">1</span> Quelle matière ?</h2>
+    <div id="matieres"><p class="vide">Chargement…</p></div>
+  </section>
+
+  <section class="card" id="etape2" hidden>
+    <h2><span class="num">2</span> Visio ou présentiel ?</h2>
+    <div class="row">
+      <div>
+        <div class="seg" id="modes">
+          <button type="button" data-mode="tous" class="on">Peu importe</button>
+          <button type="button" data-mode="visio">Visio</button>
+          <button type="button" data-mode="presentiel">Présentiel</button>
+        </div>
+      </div>
+      <div id="profWrap" hidden>
+        <label class="f" for="profSel">Enseignant</label>
+        <select id="profSel"></select>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="etape3" hidden>
+    <h2><span class="num">3</span> Choisis ton créneau</h2>
+    <div id="slots"></div>
+  </section>
+</main>
+
+<dialog id="dlg"><div class="dlg-in" id="dlgBody"></div></dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+const state = { matieres: [], pm: [], dispos: [], matiere: null, mode: 'tous', prof: 'tous', slots: [], jours: 7 };
+
+async function init() {
+  if (!sb) { bannerConfig($('#banner')); $('#matieres').innerHTML = ''; return; }
+  const [m, pm, d] = await Promise.all([
+    sb.from('matieres').select('*').order('nom'),
+    sb.from('prof_matieres').select('prof_id, matiere_id, tarif, profiles(nom, bio, duree_creneau)'),
+    sb.from('disponibilites').select('*')
+  ]);
+  const err = m.error || pm.error || d.error;
+  if (err) {
+    $('#banner').innerHTML = '<div class="alert err">Impossible de charger les données : ' + esc(err.message) + '</div>';
+    $('#matieres').innerHTML = '';
+    return;
+  }
+  state.matieres = m.data;
+  state.dispos = d.data;
+  // on ne garde que les enseignants qui ont au moins une disponibilité
+  const avecDispo = new Set(d.data.map(x => x.prof_id));
+  state.pm = pm.data.filter(x => x.profiles && avecDispo.has(x.prof_id));
+  renderMatieres();
+}
+
+function renderMatieres() {
+  const dispo = new Set(state.pm.map(x => x.matiere_id));
+  const liste = state.matieres.filter(x => dispo.has(x.id));
+  if (!liste.length) {
+    $('#matieres').innerHTML = '<p class="vide">Aucun créneau n\'est proposé pour le moment. Reviens bientôt !</p>';
+    return;
+  }
+  const cats = ['Scolaire', 'Sport', 'Autre'];
+  $('#matieres').innerHTML = cats.map(c => {
+    const l = liste.filter(x => x.categorie === c);
+    if (!l.length) return '';
+    return '<div class="groupe"><div class="titre">' + c + '</div><div class="chips">' +
+      l.map(x => '<button type="button" class="chip' + (state.matiere === x.id ? ' on' : '') + '" data-id="' + x.id + '">' + esc(x.nom) + '</button>').join('') +
+      '</div></div>';
+  }).join('');
+}
+
+$('#matieres').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  state.matiere = +b.dataset.id; state.prof = 'tous'; state.jours = 7;
+  renderMatieres();
+  const profs = state.pm.filter(x => x.matiere_id === state.matiere);
+  $('#profWrap').hidden = profs.length < 2;
+  $('#profSel').innerHTML = '<option value="tous">Tous les enseignants</option>' +
+    profs.map(p => '<option value="' + p.prof_id + '">' + esc(p.profiles.nom) + '</option>').join('');
+  $('#etape2').hidden = false; $('#etape3').hidden = false;
+  chargerCreneaux();
+});
+
+$('#modes').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.mode = b.dataset.mode; state.jours = 7;
+  $$('#modes button').forEach(x => x.classList.toggle('on', x === b));
+  renderSlots();
+});
+$('#profSel').addEventListener('change', e => { state.prof = e.target.value; state.jours = 7; renderSlots(); });
+
+let pris = [];
+async function chargerCreneaux() {
+  $('#slots').innerHTML = '<p class="vide">Recherche des créneaux…</p>';
+  const from = new Date(), to = new Date(Date.now() + (JOURS_A_L_AVANCE + 2) * 86400000);
+  const r = await sb.rpc('creneaux_pris', { p_from: from.toISOString(), p_to: to.toISOString() });
+  if (r.error) { $('#slots').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
+  pris = r.data.map(x => ({ prof_id: x.prof_id, a: new Date(x.debut).getTime(), b: new Date(x.fin).getTime() }));
+  renderSlots();
+}
+
+function estPris(profId, a, b) {
+  return pris.some(p => p.prof_id === profId && a < p.b && b > p.a);
+}
+
+function calculerCreneaux() {
+  const profs = state.pm.filter(x => x.matiere_id === state.matiere && (state.prof === 'tous' || x.prof_id === state.prof));
+  const t = parisYMD(new Date());
+  const minStart = Date.now() + 3 * 3600e3;
+  const map = new Map();
+  for (let i = 0; i < JOURS_A_L_AVANCE; i++) {
+    const cal = new Date(Date.UTC(t.y, t.m, t.d + i));
+    const wd = cal.getUTCDay();
+    for (const p of profs) {
+      const duree = p.profiles.duree_creneau;
+      for (const dv of state.dispos.filter(x => x.prof_id === p.prof_id && x.jour === wd)) {
+        const modes = dv.mode === 'les_deux' ? ['visio', 'presentiel'] : [dv.mode];
+        const offerts = state.mode === 'tous' ? modes : modes.filter(x => x === state.mode);
+        if (!offerts.length) continue;
+        const [h1, m1] = dv.debut.split(':').map(Number);
+        const [h2, m2] = dv.fin.split(':').map(Number);
+        let cur = h1 * 60 + m1; const fin = h2 * 60 + m2;
+        while (cur + duree <= fin) {
+          const start = parisToDate(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate(), Math.floor(cur / 60), cur % 60);
+          const stop = new Date(start.getTime() + duree * 60000);
+          if (start.getTime() >= minStart && !estPris(p.prof_id, start.getTime(), stop.getTime())) {
+            const key = p.prof_id + '|' + start.getTime();
+            const ex = map.get(key);
+            if (ex) { offerts.forEach(o => { if (!ex.modes.includes(o)) ex.modes.push(o); }); if (dv.lieu && !ex.lieu) ex.lieu = dv.lieu; }
+            else map.set(key, { prof: p, start, stop, modes: [...offerts], lieu: dv.lieu || '' });
+          }
+          cur += duree;
+        }
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.start - b.start || a.prof.profiles.nom.localeCompare(b.prof.profiles.nom));
+}
+
+function renderSlots() {
+  state.slots = calculerCreneaux();
+  const box = $('#slots');
+  if (!state.slots.length) {
+    box.innerHTML = '<p class="vide">Aucun créneau libre avec ces choix. Essaie « Peu importe » ou une autre matière.</p>';
+    return;
+  }
+  const groupes = new Map();
+  state.slots.forEach((s, i) => {
+    const k = jourLabel(s.start);
+    if (!groupes.has(k)) groupes.set(k, []);
+    groupes.get(k).push([s, i]);
+  });
+  const jours = [...groupes.entries()];
+  const visibles = jours.slice(0, state.jours);
+  const plusieursProfs = new Set(state.slots.map(s => s.prof.prof_id)).size > 1;
+  box.innerHTML = visibles.map(([jour, l]) =>
+    '<div class="jour"><h3>' + esc(jour) + '</h3><div class="slot-grid">' +
+    l.map(([s, i]) => {
+      const modes = s.modes.map(m => MODE_LABEL[m]).join(' / ');
+      const qui = plusieursProfs ? esc(s.prof.profiles.nom) : '';
+      return '<button type="button" class="slot" data-i="' + i + '"><b>' + heure(s.start) + '</b>' +
+        (qui ? '<span>' + qui + '</span>' : '') + '<span class="tag">' + modes + '</span></button>';
+    }).join('') + '</div></div>'
+  ).join('') + (jours.length > visibles.length ? '<div class="actions" style="justify-content:center"><button type="button" class="btn ghost" id="plus">Voir les jours suivants</button></div>' : '');
+}
+
+$('#slots').addEventListener('click', e => {
+  if (e.target.id === 'plus') { state.jours += 7; renderSlots(); return; }
+  const b = e.target.closest('.slot'); if (!b) return;
+  ouvrirReservation(state.slots[+b.dataset.i]);
+});
+
+function ouvrirReservation(s) {
+  const mat = state.matieres.find(x => x.id === state.matiere);
+  const modeInit = state.mode !== 'tous' && s.modes.includes(state.mode) ? state.mode : s.modes[0];
+  const tarif = s.prof.tarif != null ? ' · ' + Number(s.prof.tarif).toFixed(2).replace('.', ',').replace(',00', '') + ' €' : '';
+  $('#dlgBody').innerHTML =
+    '<h2>Confirmer ta réservation</h2>' +
+    '<div class="recap"><b>' + esc(mat.nom) + ' avec ' + esc(s.prof.profiles.nom) + '</b>' +
+    esc(jourLabel(s.start)) + ' à ' + heure(s.start) + ' (' + s.prof.profiles.duree_creneau + ' min)' + esc(tarif) + '</div>' +
+    '<form id="fRes" novalidate>' +
+    (s.modes.length > 1
+      ? '<div class="field"><label class="f">Format</label><div class="radios">' + s.modes.map(m =>
+          '<label><input type="radio" name="mode" value="' + m + '"' + (m === modeInit ? ' checked' : '') + '> ' + MODE_LABEL[m] + '</label>').join('') + '</div></div>'
+      : '<input type="hidden" name="mode" value="' + s.modes[0] + '"><p><b>' + MODE_LABEL[s.modes[0]] + '</b></p>') +
+    (s.lieu ? '<p class="lead" style="margin:0 0 12px">Lieu en présentiel : ' + esc(s.lieu) + '</p>' : '') +
+    '<div class="field"><label class="f" for="rNom">Nom et prénom</label><input type="text" id="rNom" name="nom" autocomplete="name" required></div>' +
+    '<div class="field"><label class="f" for="rMail">Email</label><input type="email" id="rMail" name="email" autocomplete="email" required></div>' +
+    '<div class="field"><label class="f" for="rTel">Téléphone (facultatif)</label><input type="tel" id="rTel" name="tel" autocomplete="tel"></div>' +
+    '<div class="field"><label class="f" for="rMsg">Un mot pour l\'enseignant (facultatif)</label><textarea id="rMsg" name="message" placeholder="Niveau, chapitre à revoir, objectif…"></textarea></div>' +
+    '<div id="rErr"></div>' +
+    '<div class="actions"><button type="button" class="btn ghost" id="rAnnuler">Annuler</button><button type="submit" class="btn gold" id="rOk">Réserver</button></div>' +
+    '</form>';
+  $('#rAnnuler').onclick = () => $('#dlg').close();
+  $('#fRes').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const nom = (f.get('nom') || '').trim(), email = (f.get('email') || '').trim();
+    if (nom.length < 2 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      $('#rErr').innerHTML = '<div class="alert err">Indique ton nom et une adresse email valide.</div>'; return;
+    }
+    const mode = f.get('mode');
+    $('#rOk').disabled = true; $('#rErr').innerHTML = '';
+    const r = await sb.rpc('reserver', {
+      p_prof: s.prof.prof_id, p_matiere: state.matiere, p_debut: s.start.toISOString(), p_mode: mode,
+      p_nom: nom, p_email: email, p_tel: f.get('tel') || null, p_message: f.get('message') || null
+    });
+    if (r.error) {
+      $('#rOk').disabled = false;
+      $('#rErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>';
+      if (/pris|plus disponible|pas proposé/i.test(r.error.message)) chargerCreneaux();
+      return;
+    }
+    $('#dlgBody').innerHTML =
+      '<h2>C\'est réservé !</h2>' +
+      '<div class="recap"><b>' + esc(mat.nom) + ' avec ' + esc(s.prof.profiles.nom) + '</b>' + esc(jourLabel(s.start)) + ' à ' + heure(s.start) +
+      ' · ' + MODE_LABEL[mode] + (mode === 'presentiel' && s.lieu ? ' · ' + esc(s.lieu) : '') + '</div>' +
+      '<p>Ta réservation est enregistrée. ' + esc(s.prof.profiles.nom) + ' la voit dans son espace et te contactera à l\'adresse <b>' + esc(email) + '</b>' +
+      (mode === 'visio' ? ' pour t\'envoyer le lien de la visio.' : '.') + '</p>' +
+      '<div class="actions"><button type="button" class="btn" id="rFermer">Fermer</button></div>';
+    $('#rFermer').onclick = () => $('#dlg').close();
+    chargerCreneaux();
+  };
+  $('#dlg').showModal();
+}
+
+init();
+</script>
+</body>
+</html>
