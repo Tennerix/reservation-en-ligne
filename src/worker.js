@@ -438,6 +438,10 @@ function periodeValidite(duree, jusqua) {
     case null:
     case 'illimite': return { du: null, au: null };
     case 'semaine':  return { du: t.date, au: addJours(t.date, (7 - t.dow) % 7) };   // jusqu'à dimanche
+    case 'semaine_pro': {   // lundi → dimanche de la semaine prochaine
+      const lundi = addJours(t.date, ((8 - t.dow) % 7) || 7);
+      return { du: lundi, au: addJours(lundi, 6) };
+    }
     case 'mois':     return { du: t.date, au: new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) };
     case 'annee':    return { du: t.date, au: y + '-12-31' };
     case 'date': {
