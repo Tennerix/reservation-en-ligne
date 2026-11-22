@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Mes réservations : cours particuliers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="brand" href="index.html">Cours <b>particuliers</b></a>
+  <a class="lien" href="index.html">Réserver un cours</a>
+</div></header>
+
+<main class="wrap">
+  <h1>Mes réservations</h1>
+  <p class="lead" id="intro">Retrouve tes cours, annule-en un ou écris à ton enseignant.</p>
+  <div id="banner"></div>
+
+  <section class="card" id="demande" hidden>
+    <h2>Recevoir mon lien</h2>
+    <p>Indique l'adresse e-mail utilisée pour réserver : je t'envoie un lien personnel pour accéder à tes cours.</p>
+    <form id="fLien" novalidate>
+      <div class="field"><label class="f" for="lEmail">Adresse e-mail</label><input type="email" id="lEmail" autocomplete="email" required></div>
+      <div id="lMsg"></div>
+      <button type="submit" class="btn gold">Envoyer le lien</button>
+    </form>
+  </section>
+
+  <section id="liste" hidden>
+    <div id="aVenir"></div>
+    <h2 style="margin:24px 0 10px" id="hPasse" hidden>Cours passés ou annulés</h2>
+    <div id="passes"></div>
+  </section>
+</main>
+
+<dialog id="dlg" style="border:none;border-radius:16px;padding:20px;max-width:460px;width:calc(100% - 32px)">
+  <h2 id="dTitre">Écrire à l'enseignant</h2>
+  <p class="meta" id="dSous" style="color:var(--muted)"></p>
+  <div class="field"><label class="f" for="dMsg">Ton message</label><textarea id="dMsg" rows="5" maxlength="1000" placeholder="Ex. : je dois décaler le cours, serait-il possible de…"></textarea></div>
+  <div id="dErr"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" class="btn ghost" id="dAnnule">Fermer</button>
+    <button type="button" class="btn gold" id="dEnvoi">Envoyer</button>
+  </div>
+</dialog>
+
+<script src="common.js"></script>
+<script>
+const T = new URLSearchParams(location.search).get('t');
+let DATA = null, cible = null;
+
+function carte(r) {
+  const d = new Date(r.debut);
+  const statut = r.statut === 'annule' ? '<span style="color:var(--bad)">Annulé</span>' : (r.a_venir ? '' : 'Terminé');
+  let actions = '';
+  if (r.statut === 'confirme' && r.a_venir) {
+    actions = (r.peut_annuler ? '<button type="button" class="btn danger petit" data-annuler="' + r.id + '">Annuler</button> ' : '') +
+      '<button type="button" class="btn ghost petit" data-contact="' + r.id + '">Contacter ' + esc(r.prof_nom) + '</button>';
+  }
+  const note = (r.statut === 'confirme' && r.a_venir && !r.peut_annuler)
+    ? '<div class="meta">Moins de ' + DATA.delai + ' h avant le cours : pour annuler, écris à ton enseignant.</div>' : '';
+  return '<div class="item" style="margin-bottom:10px"><div><b>' + esc(jourLabel(d)) + ' · ' + heure(d) + '</b>' +
+    '<div class="meta">' + esc(r.matiere) + ' avec ' + esc(r.prof_nom) + ' · ' + MODE_LABEL[r.mode] + '</div>' +
+    (statut ? '<div class="meta">' + statut + '</div>' : '') + note + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap">' + actions + '</div></div>';
+}
+
+function afficher() {
+  const av = DATA.reservations.filter(r => r.statut === 'confirme' && r.a_venir).sort((a, b) => a.debut.localeCompare(b.debut));
+  const pa = DATA.reservations.filter(r => !(r.statut === 'confirme' && r.a_venir));
+  $('#intro').textContent = 'Réservations liées à ' + DATA.email + '.';
+  $('#aVenir').innerHTML = '<h2 style="margin:8px 0 10px">Cours à venir</h2>' +
+    (av.length ? av.map(carte).join('') : '<p class="vide">Aucun cours à venir. <a href="index.html">Réserver un créneau</a></p>');
+  $('#hPasse').hidden = !pa.length;
+  $('#passes').innerHTML = pa.map(carte).join('');
+}
+
+async function charger() {
+  const r = await api('GET', '/eleve/reservations?t=' + encodeURIComponent(T));
+  if (r.error) {
+    $('#banner').innerHTML = '<div class="alert err">' + esc(r.error.message) + ' Demande un nouveau lien ci-dessous.</div>';
+    $('#demande').hidden = false; return;
+  }
+  DATA = r.data; $('#liste').hidden = false; afficher();
+}
+
+document.addEventListener('click', async e => {
+  const a = e.target.closest('[data-annuler]'), c = e.target.closest('[data-contact]');
+  if (a) {
+    if (!confirm('Annuler ce cours ? Un e-mail de confirmation te sera envoyé.')) return;
+    a.disabled = true;
+    const r = await api('POST', '/eleve/annuler', { t: T, id: a.dataset.annuler });
+    if (r.error) { toast(r.error.message, 'err'); a.disabled = false; await charger(); return; }
+    toast('Cours annulé'); await charger();
+  }
+  if (c) {
+    cible = DATA.reservations.find(x => x.id === c.dataset.contact);
+    $('#dSous').textContent = cible.matiere + ' · ' + jourLabel(new Date(cible.debut)) + ' à ' + heure(new Date(cible.debut));
+    $('#dMsg').value = ''; $('#dErr').innerHTML = ''; $('#dlg').showModal();
+  }
+});
+$('#dAnnule').onclick = () => $('#dlg').close();
+$('#dEnvoi').onclick = async () => {
+  const message = $('#dMsg').value.trim();
+  if (message.length < 3) { $('#dErr').innerHTML = '<div class="alert err">Écris un message.</div>'; return; }
+  $('#dEnvoi').disabled = true;
+  const r = await api('POST', '/eleve/contacter', { t: T, id: cible.id, message });
+  $('#dEnvoi').disabled = false;
+  if (r.error) { $('#dErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
+  $('#dlg').close(); toast('Message envoyé à ' + cible.prof_nom); await charger();
+};
+
+$('#fLien').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = $('#lEmail').value.trim();
+  const r = await api('POST', '/eleve/lien', { email });
+  $('#lMsg').innerHTML = r.error ? '<div class="alert err">' + esc(r.error.message) + '</div>'
+    : '<div class="alert ok">Si cette adresse a déjà réservé un cours, un e-mail avec ton lien vient de partir (pense aux spams).</div>';
+});
+
+if (T) charger(); else $('#demande').hidden = false;
+</script>
+</body>
+</html>

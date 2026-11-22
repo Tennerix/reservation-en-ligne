@@ -20,7 +20,7 @@ const hhmm = t => String(t).slice(0, 5).replace(':', 'h');
 // Une valeur saisie par un élève ne doit jamais pouvoir ajouter de lignes à un e-mail
 const une = s => String(s ?? '').replace(/[\r\n]+/g, ' ').trim();
 
-export async function sendMail(env, to, subject, text) {
+export async function sendMail(env, to, subject, text, replyTo) {
   if (env.MAIL_DEBUG === '1') {
     console.log('[MAIL_DEBUG]', to, '|', subject, '\n' + text);
     return;
@@ -44,7 +44,8 @@ export async function sendMail(env, to, subject, text) {
       from: { name: 'Cours particuliers', email: env.GMAIL_USER },
       to: { email: to },
       subject,
-      text
+      text,
+      ...(replyTo ? { reply: { email: replyTo } } : {})
     });
   } finally {
     await mailer.close();
@@ -52,9 +53,9 @@ export async function sendMail(env, to, subject, text) {
 }
 
 // Un échec d'e-mail ne doit jamais faire échouer la réservation
-export function envoyer(ctx, env, to, subject, text) {
+export function envoyer(ctx, env, to, subject, text, replyTo) {
   ctx.waitUntil(
-    sendMail(env, to, subject, text).catch(e => console.error("Échec de l'envoi d'un e-mail :", e && e.message))
+    sendMail(env, to, subject, text, replyTo).catch(e => console.error("Échec de l'envoi d'un e-mail :", e && e.message))
   );
 }
 
@@ -75,6 +76,10 @@ Date : ${quand(r.debut)} (${r.duree} min)
 Format : ${MODE_LABEL[r.mode]}${r.mode === 'presentiel' && r.lieu ? '\nLieu : ' + r.lieu : ''}
 
 ${r.prof_nom} te contactera à cette adresse${r.mode === 'visio' ? " pour t'envoyer le lien de la visio" : ''}.
+
+Pour voir, annuler ou écrire à ${r.prof_nom} au sujet de tes cours, ton lien personnel :
+${r.lien_url}
+(Ne le transmets à personne : il donne accès à tes réservations.)
 
 À bientôt !`
   };
@@ -152,5 +157,66 @@ ${liste}
 Tu peux les modifier ici : ${site}/prof.html
 
 (Tu reçois ce message car les notifications sont activées dans ton profil.)`
+  };
+}
+
+
+/* ---------- Espace élève ---------- */
+
+export function mailEleveLien(r) {
+  return {
+    subject: 'Ton lien pour gérer tes réservations',
+    text:
+`Bonjour,
+
+Voici ton lien personnel pour voir tes cours, les annuler ou écrire à ton enseignant :
+${r.lien_url}
+
+Il reste valable 60 jours. Ne le transmets à personne.
+
+Si tu n'as rien demandé, ignore simplement ce message.`
+  };
+}
+
+export function mailEleveAnnulationParEleve(r) {
+  return {
+    subject: 'Annulation prise en compte : ' + quand(r.debut),
+    text:
+`Bonjour ${une(r.eleve_nom)},
+
+Ton cours de ${r.matiere} avec ${r.prof_nom} prévu le ${quand(r.debut)} est bien annulé.
+
+Tu peux réserver un autre créneau ici : ${r.site}/`
+  };
+}
+
+export function mailProfAnnulationParEleve(r) {
+  return {
+    subject: 'Annulation par l\'élève : ' + quand(r.debut),
+    text:
+`Bonjour ${r.prof_nom},
+
+${une(r.eleve_nom)} (${une(r.eleve_email)}) a annulé son cours.
+
+Date : ${quand(r.debut)}
+Matière : ${r.matiere}
+
+Le créneau est de nouveau disponible.
+
+(Tu reçois ce message car les notifications sont activées dans ton profil.)`
+  };
+}
+
+export function mailProfContact(r) {
+  return {
+    subject: 'Message de ' + une(r.eleve_nom) + ' (cours du ' + quand(r.debut) + ')',
+    text:
+`Bonjour ${r.prof_nom},
+
+${une(r.eleve_nom)} t'écrit au sujet de son cours de ${r.matiere} du ${quand(r.debut)} :
+
+${String(r.message).replace(/\r/g, '').trim()}
+
+Tu peux répondre directement à ce message (adresse de l'élève : ${une(r.eleve_email)}).`
   };
 }

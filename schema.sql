@@ -76,9 +76,18 @@ CREATE TABLE IF NOT EXISTS reservations (
   eleve_tel TEXT,
   message TEXT,
   statut TEXT NOT NULL DEFAULT 'confirme' CHECK (statut IN ('confirme','annule')),
+  contacts INTEGER NOT NULL DEFAULT 0,      -- messages envoyés au prof par l'élève
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_res_prof ON reservations(prof_id, debut);
+
+-- Liens personnels des élèves (seul le hachage du jeton est conservé)
+CREATE TABLE IF NOT EXISTS eleve_liens (
+  token_hash TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  expire_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_liens_email ON eleve_liens(email);
 
 -- ---------- Matières de départ ----------
 

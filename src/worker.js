@@ -3,7 +3,8 @@
 // ce Worker ne répond qu'aux adresses /api/*.
 
 import {
-  envoyer, mailEleveReservation, mailProfReservation, mailEleveAnnulation, mailProfAnnulation, mailProfDispos
+  envoyer, mailEleveReservation, mailProfReservation, mailEleveAnnulation, mailProfAnnulation, mailProfDispos,
+  mailEleveLien, mailEleveAnnulationParEleve, mailProfAnnulationParEleve, mailProfContact
 } from './mail.js';
 
 const TZ = 'Europe/Paris';
@@ -12,6 +13,9 @@ const MODES = ['visio', 'presentiel', 'les_deux'];
 const CATEGORIES = ['Scolaire', 'Sport', 'Autre'];
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const HM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const LIEN_ELEVE_MS = 60 * 24 * 3600 * 1000;   // validité du lien personnel de l'élève
+const DELAI_ANNULATION_H = 24;                  // l'élève peut annuler seul jusqu'à 24 h avant
+const MAX_CONTACTS = 3;                         // messages au prof par réservation
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -72,6 +76,12 @@ async function route(req, env, url, ctx) {
   if (m === 'GET' && p === '/api/public') return publicData(env);
   if (m === 'GET' && p === '/api/pris') return creneauxPris(env, url);
   if (m === 'POST' && p === '/api/reserver') return reserver(env, ctx, url, await body(req));
+
+  // ----- Tableau de bord élève (lien personnel reçu par e-mail) -----
+  if (m === 'POST' && p === '/api/eleve/lien') return eleveDemandeLien(env, ctx, url, await body(req));
+  if (m === 'GET' && p === '/api/eleve/reservations') return eleveReservations(env, url);
+  if (m === 'POST' && p === '/api/eleve/annuler') return eleveAnnuler(env, ctx, url, await body(req));
+  if (m === 'POST' && p === '/api/eleve/contacter') return eleveContacter(env, ctx, url, await body(req));
 
   // ----- Comptes -----
   if (m === 'POST' && p === '/api/register') return register(req, env, url, await body(req));
@@ -200,6 +210,7 @@ async function reserver(env, ctx, url, b) {
     debut: debut.toISOString(), matiere: nomMatiere, mode, lieu: dispoOk.lieu, duree: prof.duree_creneau,
     eleve_nom: nom, eleve_email: email, eleve_tel: tel, message, prof_nom: prof.nom, site: url.origin
   };
+  info.lien_url = url.origin + '/mes-reservations.html?t=' + await creerLienEleve(env, email);
   const mEleve = mailEleveReservation(info);
   envoyer(ctx, env, email, mEleve.subject, mEleve.text);
   if (prof.notif_email) {
@@ -207,6 +218,96 @@ async function reserver(env, ctx, url, b) {
     envoyer(ctx, env, prof.prof_email, mProf.subject, mProf.text);
   }
   return json({ id });
+}
+
+/* ---------------- Tableau de bord élève ---------------- */
+
+// Lien personnel : un jeton aléatoire envoyé par e-mail (seul son hachage est gardé en base)
+async function creerLienEleve(env, email) {
+  const buf = crypto.getRandomValues(new Uint8Array(24));
+  const token = toHex(buf);
+  await env.DB.prepare('INSERT INTO eleve_liens (token_hash, email, expire_at) VALUES (?, lower(?), ?)')
+    .bind(await sha256Hex(token), email, Date.now() + LIEN_ELEVE_MS).run();
+  return token;
+}
+
+async function emailDuLien(env, t) {
+  if (typeof t !== 'string' || !/^[0-9a-f]{48}$/.test(t)) throw new HttpError(401, 'Lien invalide ou expiré');
+  const r = await env.DB.prepare('SELECT email FROM eleve_liens WHERE token_hash = ? AND expire_at > ?')
+    .bind(await sha256Hex(t), Date.now()).first();
+  if (!r) throw new HttpError(401, 'Lien invalide ou expiré');
+  return r.email;
+}
+
+// Réponse identique que l'adresse existe ou non, pour ne rien révéler
+async function eleveDemandeLien(env, ctx, url, b) {
+  const email = typeof b.email === 'string' ? b.email.trim() : '';
+  if (!EMAIL_RE.test(email) || email.length > 120) throw bad('Adresse e-mail invalide');
+  const a = await env.DB.prepare('SELECT COUNT(*) AS n FROM reservations WHERE lower(eleve_email) = lower(?)').bind(email).first();
+  const recent = await env.DB.prepare('SELECT COUNT(*) AS n FROM eleve_liens WHERE email = lower(?) AND expire_at > ?')
+    .bind(email, Date.now() + LIEN_ELEVE_MS - 3600e3).first();   // liens créés depuis moins d'une heure
+  if (a && a.n > 0 && recent && recent.n < 3) {
+    const mail = mailEleveLien({ lien_url: url.origin + '/mes-reservations.html?t=' + await creerLienEleve(env, email) });
+    envoyer(ctx, env, email, mail.subject, mail.text);
+  }
+  return json({ ok: true });
+}
+
+async function eleveReservations(env, url) {
+  const email = await emailDuLien(env, url.searchParams.get('t'));
+  const rows = (await env.DB.prepare(
+    `SELECT r.id, r.debut, r.fin, r.mode, r.statut, r.eleve_nom, r.contacts, m.nom AS matiere, p.nom AS prof_nom
+     FROM reservations r JOIN matieres m ON m.id = r.matiere_id JOIN profiles p ON p.id = r.prof_id
+     WHERE lower(r.eleve_email) = ? ORDER BY r.debut DESC LIMIT 100`
+  ).bind(email).all()).results;
+  const lim = Date.now() + DELAI_ANNULATION_H * 3600e3;
+  return json({
+    email, delai: DELAI_ANNULATION_H, max_contacts: MAX_CONTACTS,
+    reservations: rows.map(r => ({ ...r, peut_annuler: r.statut === 'confirme' && new Date(r.debut).getTime() >= lim,
+      a_venir: new Date(r.fin).getTime() > Date.now() }))
+  });
+}
+
+async function reservationEleve(env, email, id) {
+  if (typeof id !== 'string') throw bad('Requête invalide');
+  const r = await env.DB.prepare(
+    `SELECT r.id, r.prof_id, r.debut, r.fin, r.mode, r.statut, r.contacts, r.eleve_nom, r.eleve_email,
+            m.nom AS matiere, p.nom AS prof_nom, p.notif_email, u.email AS prof_email
+     FROM reservations r JOIN matieres m ON m.id = r.matiere_id JOIN profiles p ON p.id = r.prof_id JOIN users u ON u.id = r.prof_id
+     WHERE r.id = ? AND lower(r.eleve_email) = ?`
+  ).bind(id, email).first();
+  if (!r) throw new HttpError(404, 'Réservation introuvable');
+  return r;
+}
+
+async function eleveAnnuler(env, ctx, url, b) {
+  const email = await emailDuLien(env, b.t);
+  const r = await reservationEleve(env, email, b.id);
+  if (r.statut !== 'confirme') return json({ ok: true });
+  if (new Date(r.debut).getTime() < Date.now() + DELAI_ANNULATION_H * 3600e3)
+    throw bad(`Il reste moins de ${DELAI_ANNULATION_H} h avant ce cours : écris directement à ${r.prof_nom} avec le bouton « Contacter ».`);
+  const upd = await env.DB.prepare("UPDATE reservations SET statut = 'annule' WHERE id = ? AND statut = 'confirme'").bind(r.id).run();
+  if (!upd.meta.changes) return json({ ok: true });
+  const info = { ...r, site: url.origin };
+  const mEleve = mailEleveAnnulationParEleve(info);
+  envoyer(ctx, env, r.eleve_email, mEleve.subject, mEleve.text);
+  if (r.notif_email) {
+    const mProf = mailProfAnnulationParEleve(info);
+    envoyer(ctx, env, r.prof_email, mProf.subject, mProf.text);
+  }
+  return json({ ok: true });
+}
+
+async function eleveContacter(env, ctx, url, b) {
+  const email = await emailDuLien(env, b.t);
+  const message = str(b.message, 3, 1000, 'Message');
+  const r = await reservationEleve(env, email, b.id);
+  if (r.statut !== 'confirme') throw bad('Cette réservation est déjà annulée.');
+  if (r.contacts >= MAX_CONTACTS) throw new HttpError(429, 'Tu as déjà envoyé plusieurs messages pour ce cours. Attends la réponse de ' + r.prof_nom + '.');
+  await env.DB.prepare('UPDATE reservations SET contacts = contacts + 1 WHERE id = ?').bind(r.id).run();
+  const mail = mailProfContact({ ...r, message, site: url.origin });
+  envoyer(ctx, env, r.prof_email, mail.subject, mail.text, r.eleve_email);
+  return json({ ok: true });
 }
 
 /* ---------------- Comptes ---------------- */

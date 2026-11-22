@@ -12,7 +12,7 @@
 <body>
 <header class="top"><div class="in">
   <a class="brand" href="index.html">Cours <b>particuliers</b></a>
-  <a class="lien" href="prof.html">Espace enseignant</a>
+  <span style="display:flex;gap:8px;flex-wrap:wrap"><a class="lien" href="mes-reservations.html">Mes réservations</a><a class="lien" href="prof.html">Espace enseignant</a></span>
 </div></header>
 
 <main class="wrap">
@@ -236,7 +236,7 @@ function ouvrirReservation(s) {
       '<div class="recap"><b>' + esc(mat.nom) + ' avec ' + esc(s.prof.profiles.nom) + '</b>' + esc(jourLabel(s.start)) + ' à ' + heure(s.start) +
       ' · ' + MODE_LABEL[mode] + (mode === 'presentiel' && s.lieu ? ' · ' + esc(s.lieu) : '') + '</div>' +
       '<p>Ta réservation est enregistrée. Un e-mail de confirmation vient de t\'être envoyé à <b>' + esc(email) + '</b> (pense à regarder tes spams). ' + esc(s.prof.profiles.nom) + ' la voit dans son espace et te contactera à cette adresse' +
-      (mode === 'visio' ? ' pour t\'envoyer le lien de la visio.' : '.') + '</p>' +
+      (mode === 'visio' ? ' pour t\'envoyer le lien de la visio.' : '.') + ' Le même e-mail contient ton lien pour annuler ou écrire à ton enseignant.</p>' +
       '<div class="actions"><button type="button" class="btn" id="rFermer">Fermer</button></div>';
     $('#rFermer').onclick = () => $('#dlg').close();
     chargerCreneaux();
