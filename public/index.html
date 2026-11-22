@@ -131,7 +131,9 @@ function calculerCreneaux() {
     const wd = cal.getUTCDay();
     for (const p of profs) {
       const duree = p.profiles.duree_creneau;
-      for (const dv of state.dispos.filter(x => x.prof_id === p.prof_id && x.jour === wd)) {
+      const ymd = cal.toISOString().slice(0, 10);
+      for (const dv of state.dispos.filter(x => x.prof_id === p.prof_id && x.jour === wd
+          && (!x.valide_du || ymd >= x.valide_du) && (!x.valide_au || ymd <= x.valide_au))) {
         const modes = dv.mode === 'les_deux' ? ['visio', 'presentiel'] : [dv.mode];
         const offerts = state.mode === 'tous' ? modes : modes.filter(x => x === state.mode);
         if (!offerts.length) continue;

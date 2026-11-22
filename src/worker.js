@@ -111,7 +111,8 @@ async function publicData(env) {
     env.DB.prepare('SELECT id, nom, categorie FROM matieres ORDER BY nom'),
     env.DB.prepare(`SELECT pm.prof_id, pm.matiere_id, pm.tarif, p.nom, p.bio, p.duree_creneau
                     FROM prof_matieres pm JOIN profiles p ON p.id = pm.prof_id`),
-    env.DB.prepare('SELECT id, prof_id, jour, debut, fin, mode, lieu FROM disponibilites')
+    env.DB.prepare('SELECT id, prof_id, jour, debut, fin, mode, lieu, valide_du, valide_au FROM disponibilites WHERE valide_au IS NULL OR valide_au >= ?')
+      .bind(parisParts(new Date()).date)
   ]);
   return json({
     matieres: mat.results,
@@ -175,10 +176,11 @@ async function reserver(env, ctx, url, b) {
 
   const fin = new Date(debut.getTime() + prof.duree_creneau * 60000);
   const a = parisParts(debut), z = parisParts(fin);
-  const dispos = (await env.DB.prepare('SELECT debut, fin, mode FROM disponibilites WHERE prof_id = ? AND jour = ?')
+  const dispos = (await env.DB.prepare('SELECT debut, fin, mode, lieu, valide_du, valide_au FROM disponibilites WHERE prof_id = ? AND jour = ?')
     .bind(b.prof, a.dow).all()).results;
   const dispoOk = a.date === z.date ? dispos.find(d =>
-    d.debut <= a.hm && d.fin >= z.hm && (d.mode === mode || d.mode === 'les_deux')) : null;
+    d.debut <= a.hm && d.fin >= z.hm && (d.mode === mode || d.mode === 'les_deux')
+    && (!d.valide_du || a.date >= d.valide_du) && (!d.valide_au || a.date <= d.valide_au)) : null;
   if (!dispoOk) throw bad("Ce créneau n'est pas proposé");
 
   // Insertion atomique : refusée si le créneau chevauche une réservation confirmée
@@ -342,12 +344,15 @@ async function ajouterDispo(env, ctx, url, user, b) {
   if (!HM_RE.test(b.debut) || !HM_RE.test(b.fin) || b.fin <= b.debut) throw bad("L'heure de fin doit être après l'heure de début.");
   if (!MODES.includes(b.mode)) throw bad('Format invalide');
   const lieu = optStr(b.lieu, 120, 'Lieu');
+  const { du, au } = periodeValidite(b.duree, b.jusqua);
+  // Chevauchement : même jour, mêmes heures ET périodes de validité qui se recoupent
   const chev = await env.DB.prepare(
-    'SELECT 1 FROM disponibilites WHERE prof_id = ?1 AND jour = ?2 AND debut < ?4 AND fin > ?3'
-  ).bind(user.id, jour, b.debut, b.fin).first();
-  if (chev) throw bad('Cette plage chevauche une plage existante le même jour.');
-  await env.DB.prepare('INSERT INTO disponibilites (id, prof_id, jour, debut, fin, mode, lieu) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), user.id, jour, b.debut, b.fin, b.mode, lieu).run();
+    `SELECT 1 FROM disponibilites WHERE prof_id = ?1 AND jour = ?2 AND debut < ?4 AND fin > ?3
+       AND COALESCE(valide_du, '0000-01-01') <= ?6 AND COALESCE(valide_au, '9999-12-31') >= ?5`
+  ).bind(user.id, jour, b.debut, b.fin, du || '0000-01-01', au || '9999-12-31').first();
+  if (chev) throw bad('Cette plage chevauche une plage existante le même jour et la même période.');
+  await env.DB.prepare('INSERT INTO disponibilites (id, prof_id, jour, debut, fin, mode, lieu, valide_du, valide_au) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), user.id, jour, b.debut, b.fin, b.mode, lieu, du, au).run();
   await notifierDispos(env, ctx, url, user);
   return json({ ok: true });
 }
@@ -389,7 +394,8 @@ async function ajouterMatiere(env, b) {
 async function notifierDispos(env, ctx, url, user) {
   const p = await env.DB.prepare('SELECT nom, notif_email FROM profiles WHERE id = ?').bind(user.id).first();
   if (!p || !p.notif_email) return;
-  const { results } = await env.DB.prepare('SELECT jour, debut, fin, mode, lieu FROM disponibilites WHERE prof_id = ?').bind(user.id).all();
+  const { results } = await env.DB.prepare('SELECT jour, debut, fin, mode, lieu, valide_au FROM disponibilites WHERE prof_id = ? AND (valide_au IS NULL OR valide_au >= ?)')
+    .bind(user.id, parisParts(new Date()).date).all();
   const m = mailProfDispos(p.nom, results, url.origin);
   envoyer(ctx, env, user.email, m.subject, m.text);
 }
@@ -413,4 +419,34 @@ async function annuler(env, ctx, url, user, id) {
     envoyer(ctx, env, user.email, mProf.subject, mProf.text);
   }
   return json({ ok: true });
+}
+
+/* ---------------- Période de validité d'une plage ---------------- */
+
+const addJours = (ymd, n) => {
+  const d = new Date(ymd + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+// Renvoie { du, au } (dates de Paris, AAAA-MM-JJ ; null = sans limite)
+function periodeValidite(duree, jusqua) {
+  const t = parisParts(new Date());          // aujourd'hui à Paris
+  const [y, m] = t.date.split('-').map(Number);
+  switch (duree) {
+    case undefined:
+    case null:
+    case 'illimite': return { du: null, au: null };
+    case 'semaine':  return { du: t.date, au: addJours(t.date, (7 - t.dow) % 7) };   // jusqu'à dimanche
+    case 'mois':     return { du: t.date, au: new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) };
+    case 'annee':    return { du: t.date, au: y + '-12-31' };
+    case 'date': {
+      if (typeof jusqua !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(jusqua) || isNaN(new Date(jusqua + 'T00:00:00Z')))
+        throw bad('Choisis une date de fin valide.');
+      if (jusqua < t.date) throw bad('La date de fin est déjà passée.');
+      if (jusqua > addJours(t.date, 800)) throw bad('La date de fin est trop lointaine.');
+      return { du: t.date, au: jusqua };
+    }
+    default: throw bad('Durée invalide');
+  }
 }

@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS disponibilites (
   fin TEXT NOT NULL,
   mode TEXT NOT NULL CHECK (mode IN ('visio','presentiel','les_deux')),
   lieu TEXT,
+  valide_du TEXT,                          -- AAAA-MM-JJ (Paris) ; vide = sans limite
+  valide_au TEXT,                          -- dernière date incluse ; vide = sans limite
   CHECK (fin > debut)
 );
 CREATE INDEX IF NOT EXISTS idx_dispo_prof ON disponibilites(prof_id);

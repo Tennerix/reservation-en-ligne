@@ -62,7 +62,7 @@
     <div id="t-dispo" hidden>
       <div class="card">
         <h2>Ajouter une plage horaire</h2>
-        <p class="lead" style="margin-top:4px">Indique quand tu es disponible chaque semaine. Le site découpe la plage en créneaux de <b id="dureeInfo">60</b> min.</p>
+        <p class="lead" style="margin-top:4px">Indique quand tu es disponible et pour combien de temps. Le site découpe la plage en créneaux de <b id="dureeInfo">60</b> min.</p>
         <form id="fDispo">
           <div class="row">
             <div><label class="f" for="dJour">Jour</label><select id="dJour"></select></div>
@@ -71,6 +71,19 @@
             <div><label class="f" for="dMode">Format</label>
               <select id="dMode"><option value="les_deux">Visio ou présentiel</option><option value="visio">Visio uniquement</option><option value="presentiel">Présentiel uniquement</option></select>
             </div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div>
+              <label class="f" for="dDuree">Pendant combien de temps ?</label>
+              <select id="dDuree">
+                <option value="illimite">Toutes les semaines, sans limite</option>
+                <option value="semaine">Cette semaine uniquement</option>
+                <option value="mois">Jusqu'à la fin du mois</option>
+                <option value="annee">Jusqu'à la fin de l'année</option>
+                <option value="date">Jusqu'à une date précise…</option>
+              </select>
+            </div>
+            <div id="dJusquaWrap" hidden><label class="f" for="dJusqua">Jusqu'au (inclus)</label><input type="date" id="dJusqua"></div>
           </div>
           <div class="field" style="margin-top:12px"><label class="f" for="dLieu">Lieu en présentiel (facultatif)</label><input type="text" id="dLieu" placeholder="Ex. : chez l'élève, club de tennis de La Flèche…"></div>
           <div id="dErr"></div>
@@ -220,13 +233,24 @@ $('#t-res').addEventListener('click', async e => {
 /* ---------- Disponibilités ---------- */
 $('#dJour').innerHTML = ORDRE_JOURS.map(j => '<option value="' + j + '">' + JOURS[j] + '</option>').join('');
 
+const fmtDate = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' });
+function periode(d) {
+  if (!d.valide_au) return 'Toutes les semaines';
+  const fin = fmtDate.format(new Date(d.valide_au + 'T00:00:00Z'));
+  const auj = parisYMD(new Date());
+  const aujStr = auj.y + '-' + String(auj.m + 1).padStart(2, '0') + '-' + String(auj.d).padStart(2, '0');
+  return d.valide_au < aujStr ? '<span style="color:var(--bad)">Terminée (jusqu\'au ' + fin + ')</span>' : 'Jusqu\'au ' + fin;
+}
+$('#dDuree').addEventListener('change', () => { $('#dJusquaWrap').hidden = $('#dDuree').value !== 'date'; });
+
 function renderDispos() {
   const box = $('#listeDispos');
   if (!D.dispos.length) { box.innerHTML = '<p class="vide">Aucune plage pour l\'instant. Ajoute-en une ci-dessus.</p>'; return; }
   const tri = [...D.dispos].sort((a, b) => ORDRE_JOURS.indexOf(a.jour) - ORDRE_JOURS.indexOf(b.jour) || a.debut.localeCompare(b.debut));
   box.innerHTML = tri.map(d =>
     '<div class="item"><div><b>' + JOURS[d.jour] + ' · ' + hhmm(d.debut) + ' à ' + hhmm(d.fin) + '</b>' +
-    '<div class="meta">' + MODE_LABEL[d.mode] + (d.lieu ? ' · ' + esc(d.lieu) : '') + '</div></div>' +
+    '<div class="meta">' + MODE_LABEL[d.mode] + (d.lieu ? ' · ' + esc(d.lieu) : '') + '</div>' +
+    '<div class="meta">' + periode(d) + '</div></div>' +
     '<button type="button" class="btn danger petit" data-suppr="' + d.id + '">Supprimer</button></div>').join('');
 }
 $('#fDispo').addEventListener('submit', async e => {
@@ -234,10 +258,9 @@ $('#fDispo').addEventListener('submit', async e => {
   const debut = $('#dDebut').value, fin = $('#dFin').value;
   $('#dErr').innerHTML = '';
   if (!debut || !fin || fin <= debut) { $('#dErr').innerHTML = '<div class="alert err">L\'heure de fin doit être après l\'heure de début.</div>'; return; }
-  const chevauche = D.dispos.some(d => d.jour === +$('#dJour').value && debut < d.fin.slice(0, 5) && fin > d.debut.slice(0, 5));
-  if (chevauche) { $('#dErr').innerHTML = '<div class="alert err">Cette plage chevauche une plage existante le même jour.</div>'; return; }
   const r = await api('POST', '/dispos', {
-    jour: +$('#dJour').value, debut, fin, mode: $('#dMode').value, lieu: $('#dLieu').value.trim() || null
+    jour: +$('#dJour').value, debut, fin, mode: $('#dMode').value, lieu: $('#dLieu').value.trim() || null,
+    duree: $('#dDuree').value, jusqua: $('#dJusqua').value || null
   });
   if (r.error) { $('#dErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
   toast('Plage ajoutée'); chargerTout();

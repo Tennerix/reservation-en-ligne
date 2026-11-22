@@ -14,6 +14,8 @@ const quand = iso => {
   const d = new Date(iso);
   return fmtJour.format(d) + ' à ' + fmtHeure.format(d).replace(':', 'h');
 };
+const fmtFin = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' });
+const jusquau = ymd => ymd ? ", jusqu'au " + fmtFin.format(new Date(ymd + 'T00:00:00Z')) : '';
 const hhmm = t => String(t).slice(0, 5).replace(':', 'h');
 // Une valeur saisie par un élève ne doit jamais pouvoir ajouter de lignes à un e-mail
 const une = s => String(s ?? '').replace(/[\r\n]+/g, ' ').trim();
@@ -136,14 +138,14 @@ Matière : ${r.matiere}
 export function mailProfDispos(prof_nom, dispos, site) {
   const tri = [...dispos].sort((a, b) => ORDRE_JOURS.indexOf(a.jour) - ORDRE_JOURS.indexOf(b.jour) || a.debut.localeCompare(b.debut));
   const liste = tri.length
-    ? tri.map(d => `- ${JOURS[d.jour]} de ${hhmm(d.debut)} à ${hhmm(d.fin)} (${MODE_LABEL[d.mode]}${d.lieu ? ', ' + d.lieu : ''})`).join('\n')
+    ? tri.map(d => `- ${JOURS[d.jour]} de ${hhmm(d.debut)} à ${hhmm(d.fin)} (${MODE_LABEL[d.mode]}${d.lieu ? ', ' + d.lieu : ''}${jusquau(d.valide_au)})`).join('\n')
     : "Aucune plage pour l'instant.";
   return {
     subject: 'Tes disponibilités ont été mises à jour',
     text:
 `Bonjour ${prof_nom},
 
-Tes disponibilités hebdomadaires viennent d'être modifiées. Voici ce que voient les élèves :
+Tes disponibilités viennent d'être modifiées. Voici ce que voient les élèves :
 
 ${liste}
 
