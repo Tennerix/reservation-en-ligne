@@ -25,7 +25,7 @@
     <div class="card" style="max-width:420px">
       <form id="fLogin" novalidate>
         <div class="field"><label class="f" for="lMail">Email</label><input type="email" id="lMail" autocomplete="email" required></div>
-        <div class="field"><label class="f" for="lPass">Mot de passe (6 caractères minimum)</label><input type="password" id="lPass" autocomplete="current-password" required></div>
+        <div class="field"><label class="f" for="lPass">Mot de passe (8 caractères minimum)</label><input type="password" id="lPass" autocomplete="current-password" required></div>
         <div id="lErr"></div>
         <div class="actions" style="justify-content:flex-start">
           <button type="submit" class="btn" id="bLogin">Se connecter</button>
@@ -103,6 +103,13 @@
           <div class="field"><label class="f" for="pNom">Nom affiché</label><input type="text" id="pNom" required></div>
           <div class="field"><label class="f" for="pBio">Présentation (facultatif)</label><textarea id="pBio"></textarea></div>
           <div class="field"><label class="f" for="pDuree">Durée d'une séance (minutes)</label><input type="number" id="pDuree" min="15" max="240" step="5"></div>
+          <div class="field">
+            <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
+              <input type="checkbox" id="pNotif" style="width:20px;height:20px;margin-top:2px;accent-color:var(--ink)">
+              <span><b>Recevoir des notifications par e-mail</b><br>
+              <span class="lead" style="margin:0">À chaque nouvelle réservation, annulation, ou modification de tes disponibilités. Les élèves reçoivent toujours leur confirmation ou leur annulation, quel que soit ce réglage.</span></span>
+            </label>
+          </div>
           <button type="submit" class="btn gold">Enregistrer</button>
         </form>
       </div>
@@ -110,8 +117,6 @@
   </section>
 </main>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js"></script>
 <script src="common.js"></script>
 <script>
 let user = null;
@@ -122,19 +127,19 @@ function vue(nom) {
 }
 
 /* ---------- Connexion ---------- */
-async function route(session) {
-  user = session ? session.user : null;
+async function route() {
+  const me = await api('GET', '/me');
+  if (me.error) { toast(me.error.message, 'err'); return; }
+  user = me.data.user;
   const bar = $('#userBar');
   if (!user) {
     bar.innerHTML = '<a class="lien" href="index.html">Page des élèves</a>';
     vue('Login'); return;
   }
   bar.innerHTML = '<span>' + esc(user.email) + '</span><button type="button" class="btn ghost petit" id="bOut" style="color:#fff;border-color:rgba(255,255,255,.35)">Déconnexion</button>';
-  $('#bOut').onclick = () => sb.auth.signOut();
-  const r = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  if (r.error) { toast(r.error.message, 'err'); return; }
-  if (!r.data) { vue('Profil'); return; }
-  D.profil = r.data;
+  $('#bOut').onclick = async () => { await api('POST', '/logout', {}); route(); };
+  if (!me.data.profil) { vue('Profil'); return; }
+  D.profil = me.data.profil;
   await chargerTout();
   vue('Dash');
 }
@@ -142,48 +147,41 @@ async function route(session) {
 $('#fLogin').addEventListener('submit', async e => {
   e.preventDefault();
   $('#lErr').innerHTML = ''; $('#bLogin').disabled = true;
-  const r = await sb.auth.signInWithPassword({ email: $('#lMail').value.trim(), password: $('#lPass').value });
+  const r = await api('POST', '/login', { email: $('#lMail').value.trim(), password: $('#lPass').value });
   $('#bLogin').disabled = false;
-  if (r.error) $('#lErr').innerHTML = '<div class="alert err">' + esc(r.error.message === 'Invalid login credentials' ? 'Email ou mot de passe incorrect.' : r.error.message) + '</div>';
+  if (r.error) { $('#lErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
+  route();
 });
 $('#bSignup').addEventListener('click', async () => {
   $('#lErr').innerHTML = '';
   const email = $('#lMail').value.trim(), password = $('#lPass').value;
-  if (!email || password.length < 6) { $('#lErr').innerHTML = '<div class="alert err">Renseigne un email et un mot de passe de 6 caractères minimum.</div>'; return; }
-  const r = await sb.auth.signUp({ email, password });
+  if (!email || password.length < 8) { $('#lErr').innerHTML = '<div class="alert err">Renseigne un email et un mot de passe de 8 caractères minimum.</div>'; return; }
+  const r = await api('POST', '/register', { email, password });
   if (r.error) { $('#lErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
-  if (!r.data.session) $('#lErr').innerHTML = '<div class="alert ok">Compte créé. Clique sur le lien reçu par email pour le confirmer, puis reviens te connecter.</div>';
+  route();
 });
 
 $('#fNouveau').addEventListener('submit', async e => {
   e.preventDefault();
   const nom = $('#nNom').value.trim();
   if (nom.length < 2) return;
-  const r = await sb.from('profiles').insert({ id: user.id, nom });
+  const r = await api('POST', '/profil', { nom });
   if (r.error) { toast(r.error.message, 'err'); return; }
-  route({ user });
+  route();
 });
 
 /* ---------- Chargement ---------- */
 async function chargerTout() {
-  const uid = user.id;
-  const [m, pm, d, res] = await Promise.all([
-    sb.from('matieres').select('*').order('nom'),
-    sb.from('prof_matieres').select('*').eq('prof_id', uid),
-    sb.from('disponibilites').select('*').eq('prof_id', uid).order('debut'),
-    sb.from('reservations').select('*, matieres(nom)').eq('prof_id', uid).eq('statut', 'confirme')
-      .gte('fin', new Date().toISOString()).order('debut')
-  ]);
-  const err = m.error || pm.error || d.error || res.error;
-  if (err) toast(err.message, 'err');
-  D.matieres = m.data || []; D.pm = pm.data || []; D.dispos = d.data || []; D.res = res.data || [];
+  const r = await api('GET', '/prof');
+  if (r.error) { toast(r.error.message, 'err'); return; }
+  D.matieres = r.data.matieres; D.pm = r.data.pm; D.dispos = r.data.dispos; D.res = r.data.res;
   renderTout();
 }
 
 function renderTout() {
   $('#dashTitre').textContent = 'Bonjour ' + D.profil.nom;
   $('#dureeInfo').textContent = D.profil.duree_creneau;
-  $('#pNom').value = D.profil.nom; $('#pBio').value = D.profil.bio || ''; $('#pDuree').value = D.profil.duree_creneau;
+  $('#pNom').value = D.profil.nom; $('#pBio').value = D.profil.bio || ''; $('#pDuree').value = D.profil.duree_creneau; $('#pNotif').checked = !!D.profil.notif_email;
   renderRes(); renderDispos(); renderMat();
 }
 
@@ -214,7 +212,7 @@ function renderRes() {
 $('#t-res').addEventListener('click', async e => {
   const b = e.target.closest('[data-annuler]'); if (!b) return;
   if (!confirm('Annuler cette réservation ? Le créneau redeviendra disponible. Pense à prévenir l\'élève.')) return;
-  const r = await sb.from('reservations').update({ statut: 'annule' }).eq('id', b.dataset.annuler);
+  const r = await api('POST', '/reservations/' + encodeURIComponent(b.dataset.annuler) + '/annuler', {});
   if (r.error) { toast(r.error.message, 'err'); return; }
   toast('Réservation annulée'); chargerTout();
 });
@@ -238,15 +236,15 @@ $('#fDispo').addEventListener('submit', async e => {
   if (!debut || !fin || fin <= debut) { $('#dErr').innerHTML = '<div class="alert err">L\'heure de fin doit être après l\'heure de début.</div>'; return; }
   const chevauche = D.dispos.some(d => d.jour === +$('#dJour').value && debut < d.fin.slice(0, 5) && fin > d.debut.slice(0, 5));
   if (chevauche) { $('#dErr').innerHTML = '<div class="alert err">Cette plage chevauche une plage existante le même jour.</div>'; return; }
-  const r = await sb.from('disponibilites').insert({
-    prof_id: user.id, jour: +$('#dJour').value, debut, fin, mode: $('#dMode').value, lieu: $('#dLieu').value.trim() || null
+  const r = await api('POST', '/dispos', {
+    jour: +$('#dJour').value, debut, fin, mode: $('#dMode').value, lieu: $('#dLieu').value.trim() || null
   });
   if (r.error) { $('#dErr').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
   toast('Plage ajoutée'); chargerTout();
 });
 $('#listeDispos').addEventListener('click', async e => {
   const b = e.target.closest('[data-suppr]'); if (!b) return;
-  const r = await sb.from('disponibilites').delete().eq('id', b.dataset.suppr);
+  const r = await api('DELETE', '/dispos/' + encodeURIComponent(b.dataset.suppr));
   if (r.error) { toast(r.error.message, 'err'); return; }
   toast('Plage supprimée'); chargerTout();
 });
@@ -265,30 +263,23 @@ function renderMat() {
   }).join('');
 }
 $('#bSaveMat').addEventListener('click', async () => {
-  const cochees = [], decochees = [];
+  const items = [];
   $$('#listeMat [data-mat]').forEach(cb => {
+    if (!cb.checked) return;
     const id = +cb.dataset.mat;
-    if (cb.checked) {
-      const t = $('[data-tarif="' + id + '"]').value;
-      cochees.push({ prof_id: user.id, matiere_id: id, tarif: t === '' ? null : +t });
-    } else decochees.push(id);
+    const t = $('[data-tarif="' + id + '"]').value;
+    items.push({ matiere_id: id, tarif: t === '' ? null : +t });
   });
-  if (cochees.length) {
-    const r = await sb.from('prof_matieres').upsert(cochees);
-    if (r.error) { toast(r.error.message, 'err'); return; }
-  }
-  if (decochees.length) {
-    const r = await sb.from('prof_matieres').delete().eq('prof_id', user.id).in('matiere_id', decochees);
-    if (r.error) { toast(r.error.message, 'err'); return; }
-  }
+  const r = await api('PUT', '/prof/matieres', { items });
+  if (r.error) { toast(r.error.message, 'err'); return; }
   toast('Matières enregistrées'); chargerTout();
 });
 $('#fAddMat').addEventListener('submit', async e => {
   e.preventDefault();
   const nom = $('#amNom').value.trim();
   if (nom.length < 2) return;
-  const r = await sb.from('matieres').insert({ nom, categorie: $('#amCat').value });
-  if (r.error) { toast(r.error.code === '23505' ? 'Cette matière existe déjà dans la liste.' : r.error.message, 'err'); return; }
+  const r = await api('POST', '/matieres', { nom, categorie: $('#amCat').value });
+  if (r.error) { toast(r.error.message, 'err'); return; }
   $('#amNom').value = ''; toast('Matière ajoutée : coche-la dans la liste'); chargerTout();
 });
 
@@ -297,17 +288,13 @@ $('#fProfil').addEventListener('submit', async e => {
   e.preventDefault();
   const duree = +$('#pDuree').value;
   if (!(duree >= 15 && duree <= 240)) { toast('La durée doit être entre 15 et 240 minutes.', 'err'); return; }
-  const r = await sb.from('profiles').update({ nom: $('#pNom').value.trim(), bio: $('#pBio').value.trim() || null, duree_creneau: duree }).eq('id', user.id);
+  const r = await api('PUT', '/profil', { nom: $('#pNom').value.trim(), bio: $('#pBio').value.trim() || null, duree_creneau: duree, notif_email: $('#pNotif').checked });
   if (r.error) { toast(r.error.message, 'err'); return; }
-  const p = await sb.from('profiles').select('*').eq('id', user.id).single();
-  D.profil = p.data; renderTout(); toast('Profil enregistré');
+  D.profil = r.data.profil; renderTout(); toast('Profil enregistré');
 });
 
 /* ---------- Démarrage ---------- */
-if (!sb) { bannerConfig($('#banner')); }
-else {
-  sb.auth.onAuthStateChange((_evt, session) => { setTimeout(() => route(session), 0); });
-}
+route();
 </script>
 </body>
 </html>

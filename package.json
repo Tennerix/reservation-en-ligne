@@ -1,0 +1,15 @@
+{
+  "name": "cours-particuliers",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "publier": "git add -A && (git commit -m \"Mise a jour\" || echo Rien de nouveau a enregistrer) && git push && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.166.0"
+  },
+  "dependencies": {
+    "worker-mailer": "^1.3.1"
+  }
+}

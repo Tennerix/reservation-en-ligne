@@ -4,8 +4,25 @@ const JOURS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'S
 const ORDRE_JOURS = [1, 2, 3, 4, 5, 6, 0];
 const MODE_LABEL = { visio: 'Visio', presentiel: 'Présentiel', les_deux: 'Visio ou présentiel' };
 
-const configOk = typeof SUPABASE_URL === 'string' && SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('VOTRE');
-const sb = (configOk && window.supabase) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+// Nombre de jours affichés à l'avance pour réserver
+const JOURS_A_L_AVANCE = 21;
+
+// Appel à l'API du site (même adresse, pas de configuration à faire)
+async function api(method, path, data) {
+  try {
+    const r = await fetch('/api' + path, {
+      method, credentials: 'same-origin',
+      headers: data !== undefined ? { 'Content-Type': 'application/json' } : {},
+      body: data !== undefined ? JSON.stringify(data) : undefined
+    });
+    let j = null;
+    try { j = await r.json(); } catch { /* pas de JSON */ }
+    if (!r.ok) return { error: { message: (j && j.error) || 'Erreur ' + r.status } };
+    return { data: j };
+  } catch (e) {
+    return { error: { message: 'Connexion impossible. Vérifie ta connexion internet.' } };
+  }
+}
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -53,8 +70,4 @@ function toast(msg, type = 'ok') {
   el.textContent = msg;
   box.appendChild(el);
   setTimeout(() => el.remove(), 3800);
-}
-
-function bannerConfig(target) {
-  target.innerHTML = '<div class="alert warn"><b>Configuration manquante.</b> Ouvre <code>config.js</code> et colle l\'URL et la clé de ton projet Supabase (voir LISEZ-MOI.md).</div>';
 }

@@ -51,30 +51,22 @@
 
 <dialog id="dlg"><div class="dlg-in" id="dlgBody"></div></dialog>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js"></script>
 <script src="common.js"></script>
 <script>
 const state = { matieres: [], pm: [], dispos: [], matiere: null, mode: 'tous', prof: 'tous', slots: [], jours: 7 };
 
 async function init() {
-  if (!sb) { bannerConfig($('#banner')); $('#matieres').innerHTML = ''; return; }
-  const [m, pm, d] = await Promise.all([
-    sb.from('matieres').select('*').order('nom'),
-    sb.from('prof_matieres').select('prof_id, matiere_id, tarif, profiles(nom, bio, duree_creneau)'),
-    sb.from('disponibilites').select('*')
-  ]);
-  const err = m.error || pm.error || d.error;
-  if (err) {
-    $('#banner').innerHTML = '<div class="alert err">Impossible de charger les données : ' + esc(err.message) + '</div>';
+  const r = await api('GET', '/public');
+  if (r.error) {
+    $('#banner').innerHTML = '<div class="alert err">Impossible de charger les données : ' + esc(r.error.message) + '</div>';
     $('#matieres').innerHTML = '';
     return;
   }
-  state.matieres = m.data;
-  state.dispos = d.data;
+  state.matieres = r.data.matieres;
+  state.dispos = r.data.dispos;
   // on ne garde que les enseignants qui ont au moins une disponibilité
-  const avecDispo = new Set(d.data.map(x => x.prof_id));
-  state.pm = pm.data.filter(x => x.profiles && avecDispo.has(x.prof_id));
+  const avecDispo = new Set(r.data.dispos.map(x => x.prof_id));
+  state.pm = r.data.pm.filter(x => x.profiles && avecDispo.has(x.prof_id));
   renderMatieres();
 }
 
@@ -119,7 +111,7 @@ let pris = [];
 async function chargerCreneaux() {
   $('#slots').innerHTML = '<p class="vide">Recherche des créneaux…</p>';
   const from = new Date(), to = new Date(Date.now() + (JOURS_A_L_AVANCE + 2) * 86400000);
-  const r = await sb.rpc('creneaux_pris', { p_from: from.toISOString(), p_to: to.toISOString() });
+  const r = await api('GET', '/pris?from=' + encodeURIComponent(from.toISOString()) + '&to=' + encodeURIComponent(to.toISOString()));
   if (r.error) { $('#slots').innerHTML = '<div class="alert err">' + esc(r.error.message) + '</div>'; return; }
   pris = r.data.map(x => ({ prof_id: x.prof_id, a: new Date(x.debut).getTime(), b: new Date(x.fin).getTime() }));
   renderSlots();
@@ -227,9 +219,9 @@ function ouvrirReservation(s) {
     }
     const mode = f.get('mode');
     $('#rOk').disabled = true; $('#rErr').innerHTML = '';
-    const r = await sb.rpc('reserver', {
-      p_prof: s.prof.prof_id, p_matiere: state.matiere, p_debut: s.start.toISOString(), p_mode: mode,
-      p_nom: nom, p_email: email, p_tel: f.get('tel') || null, p_message: f.get('message') || null
+    const r = await api('POST', '/reserver', {
+      prof: s.prof.prof_id, matiere: state.matiere, debut: s.start.toISOString(), mode,
+      nom, email, tel: f.get('tel') || null, message: f.get('message') || null
     });
     if (r.error) {
       $('#rOk').disabled = false;
@@ -241,7 +233,7 @@ function ouvrirReservation(s) {
       '<h2>C\'est réservé !</h2>' +
       '<div class="recap"><b>' + esc(mat.nom) + ' avec ' + esc(s.prof.profiles.nom) + '</b>' + esc(jourLabel(s.start)) + ' à ' + heure(s.start) +
       ' · ' + MODE_LABEL[mode] + (mode === 'presentiel' && s.lieu ? ' · ' + esc(s.lieu) : '') + '</div>' +
-      '<p>Ta réservation est enregistrée. ' + esc(s.prof.profiles.nom) + ' la voit dans son espace et te contactera à l\'adresse <b>' + esc(email) + '</b>' +
+      '<p>Ta réservation est enregistrée. Un e-mail de confirmation vient de t\'être envoyé à <b>' + esc(email) + '</b> (pense à regarder tes spams). ' + esc(s.prof.profiles.nom) + ' la voit dans son espace et te contactera à cette adresse' +
       (mode === 'visio' ? ' pour t\'envoyer le lien de la visio.' : '.') + '</p>' +
       '<div class="actions"><button type="button" class="btn" id="rFermer">Fermer</button></div>';
     $('#rFermer').onclick = () => $('#dlg').close();
